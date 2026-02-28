@@ -27,9 +27,25 @@ public struct FacingDirectionOverride : IComponentData
     public float Value;
 }
 
+public struct CharacterMaxHitPoints : IComponentData
+{
+    public int Value;
+}
+
+public struct CharacterCurrentHitPoints : IComponentData
+{
+    public int Value;
+}
+
+public struct DamageThisFrame : IBufferElementData
+{
+    public int Value;
+}
+
 public class CharacterAuthoring : MonoBehaviour
 {
     public float MoveSpeed;
+    public int HitPoints;
     
     private class Baker : Baker<CharacterAuthoring>
     {
@@ -46,6 +62,17 @@ public class CharacterAuthoring : MonoBehaviour
             {
                 Value = 1,
             });
+            AddComponent(entity, new CharacterMaxHitPoints
+            {
+                Value = authoring.HitPoints,
+            });
+            AddComponent(entity, new CharacterCurrentHitPoints
+            {
+                Value = authoring.HitPoints,
+            });
+            AddComponent<DamageThisFrame>(entity);
+            AddComponent<DestroyEntityFlag>(entity);
+            SetComponentEnabled<DestroyEntityFlag>(entity, false);
         }
     }
 }
@@ -101,5 +128,28 @@ public partial struct GlobalTimeUpdateSystem : ISystem
     public void OnUpdate(ref SystemState state)
     {
         Shader.SetGlobalFloat(_globalTimeShaderPropertyID, (float)SystemAPI.Time.ElapsedTime);
+    }
+}
+
+public partial struct ProcessDamageThisFrameSystem : ISystem
+{
+    [BurstCompile]
+    public void OnUpdate(ref SystemState state)
+    {
+        foreach (var (hitPoints, damageThisFrame, entity) in SystemAPI.Query<RefRW<CharacterCurrentHitPoints>, DynamicBuffer<DamageThisFrame>>().WithPresent<DestroyEntityFlag>().WithEntityAccess())
+        {
+            if (damageThisFrame.IsEmpty) continue;
+            foreach (var damage in damageThisFrame)
+            {
+                hitPoints.ValueRW.Value -= damage.Value;
+            }
+            
+            damageThisFrame.Clear();
+
+            if (hitPoints.ValueRO.Value <= 0)
+            {
+                SystemAPI.SetComponentEnabled<DestroyEntityFlag>(entity, true);
+            }
+        }
     }
 }
